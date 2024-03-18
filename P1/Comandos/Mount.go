@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"unsafe"
 )
@@ -154,15 +153,14 @@ func unmount(id string) {
 }
 
 func GetMount(comando string, id string, p *string) Structs.Particion {
-	if !(id[0] == '7' && id[1] == '9') {
-		Error(comando, "El primer identificador no es válido.")
+	if len(id) < 4 || id[len(id)-3:] != "576" {
+		Error(comando, "El identificador no es válido.")
 		return Structs.Particion{}
 	}
-	letra := id[len(id)-1]
-	id = strings.ReplaceAll(id, "576", "")
-	i, _ := strconv.Atoi(string(id[0] - 1))
-	if i < 0 {
-		Error(comando, "El primer identificador no es válido.")
+	letra := id[len(id)-4]
+	i := int(letra) - 'A'
+	if i < 0 || i >= len(DiscMont) {
+		Error(comando, "El identificador no es válido.")
 		return Structs.Particion{}
 	}
 	for j := 0; j < 26; j++ {
