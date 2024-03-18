@@ -23,124 +23,134 @@ type ParticionMontada struct {
 	Letra  byte
 	Estado byte
 	Nombre [20]byte
+	ID     string // Agregar campo para el ID
 }
 
-var alfabeto = []byte{'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'}
+var alfabeto = []byte{'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'}
+var lastLetterIndex int
 
+func generarID() string {
+	// Verificar si ya se han utilizado todas las letras del alfabeto
+	if lastLetterIndex >= len(alfabeto) {
+		return ""
+	}
+
+	// Generar el ID con la siguiente letra disponible y los últimos tres dígitos del carnet
+	id := string(alfabeto[lastLetterIndex]) + "576"
+
+	// Incrementar el índice de la última letra utilizada
+	lastLetterIndex++
+
+	return id
+}
 func ValidarDatosMOUNT(context []string) {
 	name := ""
-	path := ""
+	driveLetter := ""
 	for i := 0; i < len(context); i++ {
 		current := context[i]
 		comando := strings.Split(current, "=")
 		if Comparar(comando[0], "name") {
 			name = comando[1]
-		} else if Comparar(comando[0], "path") {
-			path = strings.ReplaceAll(comando[1], "\"", "")
+		} else if Comparar(comando[0], "driveletter") {
+			driveLetter = comando[1]
 		}
 	}
-	if path == "" || name == "" {
+	if driveLetter == "" || name == "" {
 		Error("MOUNT", "El comando MOUNT requiere parámetros obligatorios")
 		return
 	}
-	mount(path, name)
+	mount(driveLetter, name)
 	listaMount()
 }
 
-func mount(p string, n string) {
-	file, error_ := os.Open(p)
-	if error_ != nil {
-		Error("MOUNT", "No se ha podido abrir el archivo.")
+func mount(driveLetter string, name string) {
+	// Construir la ruta del disco
+	path := driveLetter + ".dsk"
+
+	// Abrir el archivo del disco
+	file, err := os.Open(path)
+	if err != nil {
+		Error("MOUNT", "No se ha podido abrir el archivo del disco.")
+		return
+	}
+	defer file.Close()
+
+	// Leer el MBR del disco
+	mbr := Structs.MBR{}
+	err = binary.Read(file, binary.BigEndian, &mbr)
+	if err != nil {
+		Error("MOUNT", "Error al leer el MBR del disco.")
 		return
 	}
 
-	disk := Structs.NewMBR()
-	file.Seek(0, 0)
-
-	data := leerBytes(file, int(unsafe.Sizeof(Structs.MBR{})))
-	buffer := bytes.NewBuffer(data)
-	err_ := binary.Read(buffer, binary.BigEndian, &disk)
-	if err_ != nil {
-		Error("FDSIK", "Error al leer el archivo")
+	// Buscar la partición por nombre
+	particion := BuscarParticiones(mbr, name, driveLetter)
+	if particion == nil {
+		Error("MOUNT", "No se encontró la partición especificada en el disco.")
 		return
 	}
-	file.Close()
 
-	particion := BuscarParticiones(disk, n, p)
+	// Verificar si la partición es extendida o lógica
 	if particion.Part_type == 'E' || particion.Part_type == 'L' {
-		var nombre [16]byte
-		copy(nombre[:], n)
-		if particion.Part_name == nombre && particion.Part_type == 'E' {
-			Error("MOUNT", "No se puede montar una partición extendida.")
-			return
-		} else {
-			ebrs := GetLogicas(*particion, p)
-			encontrada := false
-			if len(ebrs) != 0 {
-				for i := 0; i < len(ebrs); i++ {
-					ebr := ebrs[i]
-					nombreebr := ""
-					for j := 0; j < len(ebr.Part_name); j++ {
-						if ebr.Part_name[j] != 0 {
-							nombreebr += string(ebr.Part_name[j])
-						}
-					}
+		Error("MOUNT", "No se puede montar una partición extendida o lógica.")
+		return
+	}
 
-					if Comparar(nombreebr, n) && ebr.Part_status == '1' {
-						encontrada = true
-						n = nombreebr
-						break
-					} else if nombreebr == n && ebr.Part_status == '0' {
-						Error("MOUNT", "No se puede montar una partición Lógica eliminada.")
-						return
-					}
-				}
-				if !encontrada {
-					Error("MOUNT", "No se encontró la partición Lógica.")
-					return
-				}
-			}
-		}
-	}
-	for i := 0; i < 99; i++ {
-		var ruta [150]byte
-		copy(ruta[:], p)
-		if DiscMont[i].Path == ruta {
-			for j := 0; j < 26; j++ {
-				var nombre [20]byte
-				copy(nombre[:], n)
-				if DiscMont[i].Particiones[j].Nombre == nombre {
-					Error("MOUNT", "Ya se ha montado la partición "+n)
-					return
-				}
-				if DiscMont[i].Particiones[j].Estado == 0 {
-					DiscMont[i].Particiones[j].Estado = 1
-					DiscMont[i].Particiones[j].Letra = alfabeto[j]
-					copy(DiscMont[i].Particiones[j].Nombre[:], n)
-					re := strconv.Itoa(i+1) + string(alfabeto[j])
-					Mensaje("MOUNT", "Se ha realizado correctamente el mount -id = 79"+re)
-					return
-				}
-			}
-		}
-	}
+	// Generar un ID para la partición
+	id := generarID()
+
+	// Buscar una entrada disponible en la lista de montajes
 	for i := 0; i < 99; i++ {
 		if DiscMont[i].Estado == 0 {
 			DiscMont[i].Estado = 1
-			copy(DiscMont[i].Path[:], p)
+			copy(DiscMont[i].Path[:], []byte(path))
 			for j := 0; j < 26; j++ {
 				if DiscMont[i].Particiones[j].Estado == 0 {
 					DiscMont[i].Particiones[j].Estado = 1
 					DiscMont[i].Particiones[j].Letra = alfabeto[j]
-					copy(DiscMont[i].Particiones[j].Nombre[:], n)
-
-					re := strconv.Itoa(i+1) + string(alfabeto[j])
-					Mensaje("MOUNT", "se ha realizado correctamente el mount -id=79"+re)
+					copy(DiscMont[i].Particiones[j].Nombre[:], []byte(name))
+					DiscMont[i].Particiones[j].ID = id // Guardar el ID
+					Mensaje("MOUNT", "Se ha realizado correctamente el montaje de la partición. ID: "+id)
 					return
 				}
 			}
 		}
 	}
+
+	Error("MOUNT", "No hay espacio disponible para montar la partición.")
+}
+
+func ValidarDatosUNMOUNT(context []string) {
+	id := ""
+	for i := 0; i < len(context); i++ {
+		current := context[i]
+		comando := strings.Split(current, "=")
+		if Comparar(comando[0], "id") {
+			id = comando[1]
+		}
+	}
+	if id == "" {
+		Error("UNMOUNT", "El comando UNMOUNT requiere el parámetro obligatorio 'id'")
+		return
+	}
+	unmount(id)
+}
+
+func unmount(id string) {
+	// Buscar la partición correspondiente al ID en la lista de montajes
+	for i := 0; i < 99; i++ {
+		for j := 0; j < 26; j++ {
+			if string(DiscMont[i].Particiones[j].Letra)+"576" == id {
+				// Marcar la partición como desmontada
+				DiscMont[i].Particiones[j].Estado = 0
+				Mensaje("UNMOUNT", "Se ha desmontado correctamente la partición con ID: "+id)
+				listaMount()
+				return
+			}
+		}
+	}
+	Error("UNMOUNT", "No se encontró ninguna partición con el ID especificado.")
+
 }
 
 func GetMount(comando string, id string, p *string) Structs.Particion {
@@ -149,7 +159,7 @@ func GetMount(comando string, id string, p *string) Structs.Particion {
 		return Structs.Particion{}
 	}
 	letra := id[len(id)-1]
-	id = strings.ReplaceAll(id, "79", "")
+	id = strings.ReplaceAll(id, "576", "")
 	i, _ := strconv.Atoi(string(id[0] - 1))
 	if i < 0 {
 		Error(comando, "El primer identificador no es válido.")
@@ -209,7 +219,7 @@ func listaMount() {
 						nombre += string(DiscMont[i].Particiones[j].Nombre[k])
 					}
 				}
-				fmt.Println("\t id: 79" + strconv.Itoa(i+1) + string(alfabeto[j]) + ", Nombre: " + nombre)
+				fmt.Println("\t id:" + string(alfabeto[j]) + "576" + ", Nombre: " + nombre)
 			}
 		}
 	}

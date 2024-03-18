@@ -47,12 +47,6 @@ func ValidarDatosMKDISK(tokens []string) {
 			return
 		}
 	}
-	if fit == "" {
-		fit = "FF"
-	}
-	if unit == "" {
-		unit = "M"
-	}
 	if error_ {
 		return
 	}
@@ -60,9 +54,15 @@ func ValidarDatosMKDISK(tokens []string) {
 		Error("MKDISK", "se requiere parametro Size para este comando")
 		return
 	}
+	if fit == "" {
+		fit = "FF"
+	}
 	if !Comparar(fit, "BF") && !Comparar(fit, "FF") && !Comparar(fit, "WF") {
 		Error("MKDISK", "valores en parametro fit no esperados")
 		return
+	}
+	if unit == "" {
+		unit = "m"
 	}
 	if !Comparar(unit, "k") && !Comparar(unit, "m") {
 		Error("MKDISK", "valores en parametro unit no esperados")
@@ -129,7 +129,7 @@ func makeFile(s string, f string, u string) {
 			binary.Write(&binario3, binary.BigEndian, disco)
 			EscribirBytes(file, binario3.Bytes())
 
-			Mensaje("MKDISK", "¡Disco \""+path+"\" creado correctamente! Bv")
+			Mensaje("MKDISK", "¡Disco \""+path+"\" creado correctamente!")
 			return
 		}
 	}

@@ -135,6 +135,9 @@ func funciones(token string, tks []string) {
 		} else if Comandos.Comparar(token, "MOUNT") {
 			fmt.Println("*************************************** FUNCIÓN MOUNT  **************************************")
 			Comandos.ValidarDatosMOUNT(tks)
+		} else if Comandos.Comparar(token, "UNMOUNT") {
+			fmt.Println("*************************************** FUNCIÓN UNMOUNT  **************************************")
+			Comandos.ValidarDatosUNMOUNT(tks)
 		} else if Comandos.Comparar(token, "MKFS") {
 			fmt.Println("*************************************** FUNCIÓN MKFS  **************************************")
 			Comandos.ValidarDatosMKFS(tks)

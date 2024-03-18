@@ -23,10 +23,10 @@ var startValue int
 
 func ValidarDatosFDISK(tokens []string) {
 	size := ""
-	unit := "k"
+	unit := ""
 	dletter := ""
 	tipo := "P"
-	fit := "WF"
+	fit := ""
 	name := ""
 	add := ""
 	delete := ""
@@ -82,6 +82,15 @@ func ValidarDatosFDISK(tokens []string) {
 func generarParticion(s string, u string, driveLetter string, t string, f string, n string) {
 	driveLetter += ".dsk"
 	startValue = 0
+	if f == "" {
+		f = "wf"
+	}
+	if t == "" {
+		t = "p"
+	}
+	if u == "" {
+		u = "k"
+	}
 	basePath := "C:\\Users\\SuperUser\\Desktop\\Repositorio Local\\EJEMPLOS_MIA\\P1"
 	i, error_ := strconv.Atoi(s)
 	if error_ != nil {
@@ -266,6 +275,40 @@ func eliminarParticion(driveLetter, name, deleteSize string) {
 	if particion == nil {
 		// Si no se encuentra la partición, mostrar un error
 		Error("FDISK", "La partición "+name+" no existe")
+		return
+	}
+
+	// Si deleteSize es "full", marcar el espacio como vacío y rellenar con \0
+	if deleteSize == "full" {
+		// Marcar el espacio de la partición como vacío
+		particion.Part_status = 0
+
+		// Rellenar el espacio de la partición con el carácter nulo (\0)
+		file, err := os.OpenFile(driveLetter+".dsk", os.O_WRONLY, os.ModeAppend)
+		if err != nil {
+			Error("FDISK", "Error al abrir el archivo")
+			return
+		}
+		defer file.Close()
+
+		// Mover el puntero al inicio del espacio de la partición
+		file.Seek(particion.Part_start, 0)
+
+		// Calcular la cantidad de bytes a escribir
+		nullBytes := make([]byte, particion.Part_size)
+		for i := range nullBytes {
+			nullBytes[i] = 0 // Llenar el slice con el carácter nulo (\0)
+		}
+
+		// Escribir los bytes en el disco
+		_, err = file.Write(nullBytes)
+		if err != nil {
+			Error("FDISK", "Error al escribir los bytes en el disco")
+			return
+		}
+
+		// Mostrar un mensaje confirmando el cambio
+		Mensaje("FDISK", "Espacio marcado como vacío y rellenado con \\0 en la partición "+name)
 		return
 	}
 

@@ -13,14 +13,15 @@ import (
 
 func ValidarDatosMKFS(context []string) {
 	id := ""
-	tipo := "Full"
-
+	tipo := ""
+	fs := ""
 	for i := 0; i < len(context); i++ {
 		token := context[i]
 		tk := strings.Split(token, "=")
 		if Comparar(tk[0], "id") {
 			id = tk[1]
-		} else if Comparar(tk[0], "type") {
+		}
+		if Comparar(tk[0], "type") {
 			if Comparar(tk[1], "fast") || Comparar(tk[1], "full") {
 				tipo = tk[1]
 			} else {
@@ -28,15 +29,22 @@ func ValidarDatosMKFS(context []string) {
 				return
 			}
 		}
+		if Comparar(tk[0], "fs") {
+			if Comparar(tk[1], "2fs") || Comparar(tk[1], "3fs") {
+				fs = tk[1]
+			} else {
+				Error("MKFS", "No existe ese tipo de sistema")
+			}
+		}
 	}
 	if id == "" {
 		Error("MKFS", "EL comando requiere el parámetro id obligatoriamente")
 		return
 	}
-	mkfs(id, tipo)
+	mkfs(id, tipo, fs)
 }
 
-func mkfs(id string, t string) {
+func mkfs(id string, t string, f string) {
 	p := ""
 	particion := GetMount("MKFS", id, &p)
 	n := math.Floor(float64(particion.Part_size-int64(unsafe.Sizeof(Structs.SuperBloque{}))) / float64(4+unsafe.Sizeof(Structs.Inodos{})+3*unsafe.Sizeof(Structs.BloquesArchivos{})))
@@ -53,16 +61,18 @@ func mkfs(id string, t string) {
 	copy(spr.S_mtime[:], fecha)
 	spr.S_mnt_count = spr.S_mnt_count + 1
 	spr.S_filesystem_type = 2
-	ext2(spr, particion, int64(n), p)
+
+	ext2(spr, particion, int64(n), p, t, f)
 }
 
-func ext2(spr Structs.SuperBloque, p Structs.Particion, n int64, path string) {
+func ext2(spr Structs.SuperBloque, p Structs.Particion, n int64, d string, t string, f string) {
 	spr.S_bm_inode_start = p.Part_size + int64(unsafe.Sizeof(Structs.SuperBloque{}))
 	spr.S_bm_block_start = spr.S_bm_inode_start + n
 	spr.S_inode_start = spr.S_bm_block_start + (3 * n)
 	spr.S_block_start = spr.S_bm_inode_start + (n * int64(unsafe.Sizeof(Structs.Inodos{})))
 
-	file, err := os.OpenFile(strings.ReplaceAll(path, "\"", ""), os.O_WRONLY, os.ModeAppend)
+	d += ".dsk"
+	file, err := os.OpenFile(strings.ReplaceAll(d, "\"", ""), os.O_WRONLY, os.ModeAppend)
 	//file, err := os.Open(strings.ReplaceAll(path, "\"", ""))
 	if err != nil {
 		Error("MKFS", "No se ha encontrado el disco.")
@@ -124,7 +134,7 @@ func ext2(spr Structs.SuperBloque, p Structs.Particion, n int64, path string) {
 	//ABRIR ARCHIVO
 	//file, err := os.OpenFile(strings.ReplaceAll(path, "\"", ""), os.O_WRONLY, os.ModeAppend)
 
-	file, err = os.Open(strings.ReplaceAll(path, "\"", ""))
+	file, err = os.Open(strings.ReplaceAll(d, "\"", ""))
 	if err != nil {
 		Error("MKFS", "No se ha encontrado el disco.")
 		return
@@ -177,7 +187,7 @@ func ext2(spr Structs.SuperBloque, p Structs.Particion, n int64, path string) {
 	var fileb Structs.BloquesArchivos
 	copy(fileb.B_content[:], dataArchivo)
 
-	file, err = os.OpenFile(strings.ReplaceAll(path, "\"", ""), os.O_WRONLY, os.ModeAppend)
+	file, err = os.OpenFile(strings.ReplaceAll(d, "\"", ""), os.O_WRONLY, os.ModeAppend)
 	//file, err = os.Open(strings.ReplaceAll(path, "\"", ""))
 	if err != nil {
 		Error("MKFS", "No se ha encontrado el disco.")
