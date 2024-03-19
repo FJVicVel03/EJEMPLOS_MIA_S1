@@ -23,13 +23,13 @@ var startValue int
 
 func ValidarDatosFDISK(tokens []string) {
 	size := ""
-	unit := ""
-	dletter := ""
+	unit := "k"
+	driveletter := ""
 	tipo := "P"
-	fit := ""
+	fit := "WF"
 	name := ""
 	add := ""
-	delete := ""
+	borrar := ""
 	for i := 0; i < len(tokens); i++ {
 		token := tokens[i]
 		tk := strings.Split(token, "=")
@@ -38,7 +38,7 @@ func ValidarDatosFDISK(tokens []string) {
 		} else if Comparar(tk[0], "unit") {
 			unit = tk[1]
 		} else if Comparar(tk[0], "driveletter") {
-			dletter = strings.ReplaceAll(tk[1], "\"", "")
+			driveletter = tk[1]
 		} else if Comparar(tk[0], "type") {
 			tipo = tk[1]
 		} else if Comparar(tk[0], "fit") {
@@ -48,50 +48,34 @@ func ValidarDatosFDISK(tokens []string) {
 		} else if Comparar(tk[0], "add") {
 			add = tk[1]
 		} else if Comparar(tk[0], "delete") {
-			delete = tk[1]
+			borrar = tk[1]
+		} else {
+			Error("FDISK", "El comando FDISK no acepta este comando"+tk[0])
+			return
 		}
 	}
 
-	// Verificar si se proporcionó tanto -add como -delete
-	if add != "" && delete != "" {
-		Error("FDISK", "No se pueden proporcionar tanto -add como -delete simultáneamente")
-		return
-	}
-
-	// Verificar si se proporcionó -add o -delete
 	if add != "" {
-		agregarEspacio(dletter, name, add)
+		addSpace(driveletter, name, add, unit)
 		return
 	}
 
-	if delete != "" {
-		eliminarParticion(dletter, name, delete)
+	if borrar != "" {
+		borrarparticion(driveletter, name, borrar)
 		return
 	}
 
-	// Si no se proporcionaron instrucciones de -add ni -delete,
-	// entonces llamar a la función generarParticion
-	if dletter == "" || name == "" {
+	if driveletter == "" || name == "" {
 		Error("FDISK", "El comando FDISK necesita parametros obligatorios")
 		return
+	} else {
+		generarParticion(size, unit, driveletter, tipo, fit, name)
 	}
-
-	generarParticion(size, unit, dletter, tipo, fit, name)
 }
 
-func generarParticion(s string, u string, driveLetter string, t string, f string, n string) {
-	driveLetter += ".dsk"
+func generarParticion(s string, u string, p string, t string, f string, n string) {
+	p += ".dsk"
 	startValue = 0
-	if f == "" {
-		f = "wf"
-	}
-	if t == "" {
-		t = "p"
-	}
-	if u == "" {
-		u = "k"
-	}
-	basePath := "C:\\Users\\SuperUser\\Desktop\\Repositorio Local\\EJEMPLOS_MIA\\P1"
 	i, error_ := strconv.Atoi(s)
 	if error_ != nil {
 		Error("FDISK", "Size debe ser un número entero")
@@ -119,11 +103,18 @@ func generarParticion(s string, u string, driveLetter string, t string, f string
 		Error("FDISK", "Fit no contiene los valores esperados.")
 		return
 	}
-	// Construir la ruta completa
-	path := filepath.Join(basePath, driveLetter)
+
+	discoPath := "C:\\Users\\SuperUser\\Desktop\\Repositorio Local\\EJEMPLOS_MIA\\P1"
+
+	path := filepath.Join(discoPath, p)
 
 	mbr := leerDisco(path)
 	if mbr == nil {
+		return
+	}
+
+	if int64(i) > mbr.Mbr_Tamano {
+		Error("FDISK", "El tamaño de la partición es mayor que el tamaño del disco duro.")
 		return
 	}
 
@@ -172,7 +163,7 @@ func generarParticion(s string, u string, driveLetter string, t string, f string
 	if usado != 0 {
 		between[len(between)-1].after = int(mbr.Mbr_Tamano) - between[len(between)-1].end
 	}
-	regresa := BuscarParticiones(*mbr, n, driveLetter)
+	regresa := BuscarParticiones(*mbr, n, p)
 	if regresa != nil {
 		Error("FDISK", "El nombre: "+n+", ya está en uso.")
 		return
@@ -185,17 +176,19 @@ func generarParticion(s string, u string, driveLetter string, t string, f string
 	copy(temporal.Part_name[:], n)
 
 	if Comparar(t, "l") {
-		Logica(temporal, extended, driveLetter)
+		Logica(temporal, extended, p)
 		return
 	}
-	mbr = ajustar(mbr, temporal, between, particiones, usado)
+	mbr = ajustar(*mbr, temporal, between, particiones, usado)
 	if mbr == nil {
 		return
 	}
-	file, err := os.OpenFile(strings.ReplaceAll(filepath.Join(basePath, driveLetter), "\"", ""), os.O_WRONLY, os.ModeAppend)
+	file, err := os.OpenFile(strings.ReplaceAll(filepath.Join(discoPath, p), "\"", ""), os.O_WRONLY, os.ModeAppend)
 	if err != nil {
-		Error("FDISK", "Error al abrir el archivo")
+		Error("FDISK", "Error al abrir el archivo 2: "+err.Error())
+		return
 	}
+	defer file.Close()
 	file.Seek(0, 0)
 	var binario2 bytes.Buffer
 	binary.Write(&binario2, binary.BigEndian, mbr)
@@ -218,151 +211,21 @@ func generarParticion(s string, u string, driveLetter string, t string, f string
 	Mensaje("FDISK", "Partición Primaria: "+n+", creada correctamente.")
 }
 
-func agregarEspacio(driveLetter, name, addSize string) {
-	// Leer el disco para obtener el MBR
-	mbr := leerDisco(driveLetter + ".dsk")
-	if mbr == nil {
-		return
-	}
-
-	// Buscar la partición por nombre
-	particion := BuscarParticiones(*mbr, name, driveLetter)
-	if particion == nil {
-		// Si no se encuentra la partición, mostrar un error
-		Error("FDISK", "La partición "+name+" no existe")
-		return
-	}
-
-	// Calcular el nuevo tamaño de la partición
-	newSize, err := strconv.Atoi(addSize)
-	if err != nil {
-		Error("FDISK", "Error al convertir el tamaño a entero")
-		return
-	}
-
-	// Guardar el tamaño anterior para mostrarlo en el mensaje
-	previousSize := particion.Part_size
-
-	// Actualizar el tamaño de la partición
-	particion.Part_size += int64(newSize)
-
-	// Escribir el MBR actualizado en el disco
-	file, err := os.OpenFile(strings.ReplaceAll(driveLetter+".dsk", "\"", ""), os.O_WRONLY, os.ModeAppend)
-	if err != nil {
-		Error("FDISK", "Error al abrir el archivo")
-		return
-	}
-	defer file.Close()
-
-	file.Seek(0, 0)
-	var binario2 bytes.Buffer
-	binary.Write(&binario2, binary.BigEndian, mbr)
-	EscribirBytes(file, binario2.Bytes())
-
-	// Mostrar un mensaje confirmando el cambio
-	Mensaje("FDISK", "Espacio agregado a la partición "+name+". Nuevo tamaño: "+strconv.FormatInt(particion.Part_size, 10)+", Tamaño anterior: "+strconv.FormatInt(previousSize, 10))
-}
-
-func eliminarParticion(driveLetter, name, deleteSize string) {
-	// Leer el disco para obtener el MBR
-	mbr := leerDisco(driveLetter + ".dsk")
-	if mbr == nil {
-		return
-	}
-
-	// Buscar la partición por nombre
-	particion := BuscarParticiones(*mbr, name, driveLetter)
-	if particion == nil {
-		// Si no se encuentra la partición, mostrar un error
-		Error("FDISK", "La partición "+name+" no existe")
-		return
-	}
-
-	// Si deleteSize es "full", marcar el espacio como vacío y rellenar con \0
-	if deleteSize == "full" {
-		// Marcar el espacio de la partición como vacío
-		particion.Part_status = 0
-
-		// Rellenar el espacio de la partición con el carácter nulo (\0)
-		file, err := os.OpenFile(driveLetter+".dsk", os.O_WRONLY, os.ModeAppend)
-		if err != nil {
-			Error("FDISK", "Error al abrir el archivo")
-			return
-		}
-		defer file.Close()
-
-		// Mover el puntero al inicio del espacio de la partición
-		file.Seek(particion.Part_start, 0)
-
-		// Calcular la cantidad de bytes a escribir
-		nullBytes := make([]byte, particion.Part_size)
-		for i := range nullBytes {
-			nullBytes[i] = 0 // Llenar el slice con el carácter nulo (\0)
-		}
-
-		// Escribir los bytes en el disco
-		_, err = file.Write(nullBytes)
-		if err != nil {
-			Error("FDISK", "Error al escribir los bytes en el disco")
-			return
-		}
-
-		// Mostrar un mensaje confirmando el cambio
-		Mensaje("FDISK", "Espacio marcado como vacío y rellenado con \\0 en la partición "+name)
-		return
-	}
-
-	// Calcular el nuevo tamaño de la partición
-	newSize, err := strconv.Atoi(deleteSize)
-	if err != nil {
-		Error("FDISK", "Error al convertir el tamaño a entero")
-		return
-	}
-
-	// Guardar el tamaño anterior para mostrarlo en el mensaje
-	previousSize := particion.Part_size
-
-	// Verificar que el tamaño a eliminar no sea mayor que el tamaño actual de la partición
-	if int64(newSize) > particion.Part_size {
-		Error("FDISK", "No se puede eliminar más espacio del disponible en la partición "+name)
-		return
-	}
-
-	// Actualizar el tamaño de la partición
-	particion.Part_size -= int64(newSize)
-
-	// Escribir el MBR actualizado en el disco
-	file, err := os.OpenFile(strings.ReplaceAll(driveLetter+".dsk", "\"", ""), os.O_WRONLY, os.ModeAppend)
-	if err != nil {
-		Error("FDISK", "Error al abrir el archivo")
-		return
-	}
-	defer file.Close()
-
-	file.Seek(0, 0)
-	var binario2 bytes.Buffer
-	binary.Write(&binario2, binary.BigEndian, mbr)
-	EscribirBytes(file, binario2.Bytes())
-
-	// Mostrar un mensaje confirmando el cambio
-	Mensaje("FDISK", "Espacio eliminado de la partición "+name+". Nuevo tamaño: "+strconv.FormatInt(particion.Part_size, 10)+", Tamaño anterior: "+strconv.FormatInt(previousSize, 10))
-}
-
 func GetParticiones(disco Structs.MBR) []Structs.Particion {
 	var v []Structs.Particion
-	v = append(v, disco.Mbr_partition_1)
-	v = append(v, disco.Mbr_partition_2)
-	v = append(v, disco.Mbr_partition_3)
-	v = append(v, disco.Mbr_partition_4)
+	v = append(v, disco.Particiones[0])
+	v = append(v, disco.Particiones[1])
+	v = append(v, disco.Particiones[2])
+	v = append(v, disco.Particiones[3])
 	return v
 }
 
 func BuscarParticiones(mbr Structs.MBR, name string, path string) *Structs.Particion {
 	var particiones [4]Structs.Particion
-	particiones[0] = mbr.Mbr_partition_1
-	particiones[1] = mbr.Mbr_partition_2
-	particiones[2] = mbr.Mbr_partition_3
-	particiones[3] = mbr.Mbr_partition_4
+	particiones[0] = mbr.Particiones[0]
+	particiones[1] = mbr.Particiones[1]
+	particiones[2] = mbr.Particiones[2]
+	particiones[3] = mbr.Particiones[3]
 
 	ext := false
 	extended := Structs.NewParticion()
@@ -413,11 +276,13 @@ func BuscarParticiones(mbr Structs.MBR, name string, path string) *Structs.Parti
 
 func GetLogicas(particion Structs.Particion, path string) []Structs.EBR {
 	var ebrs []Structs.EBR
-	file, err := os.Open(strings.ReplaceAll(path, "\"", ""))
+	discoPath := "C:\\Users\\SuperUser\\Desktop\\Repositorio Local\\EJEMPLOS_MIA\\P1" + path + ".dsk"
+	file, err := os.Open(discoPath)
 	if err != nil {
-		Error("FDISK", "Error al abrir el archivo")
+		Error("FDISK", "Error al abrir el archivo del disco")
 		return nil
 	}
+	defer file.Close()
 	file.Seek(0, 0)
 	tmp := Structs.NewEBR()
 	file.Seek(particion.Part_start, 0)
@@ -450,7 +315,8 @@ func GetLogicas(particion Structs.Particion, path string) []Structs.EBR {
 	return ebrs
 }
 
-func Logica(particion Structs.Particion, ep Structs.Particion, path string) {
+func Logica(particion Structs.Particion, ep Structs.Particion, driveletter string) {
+	discoPath := "C:\\Users\\SuperUser\\Desktop\\Repositorio Local\\EJEMPLOS_MIA\\P1" + driveletter + ".dsk"
 	logic := Structs.NewEBR()
 	logic.Part_status = '1'
 	logic.Part_fit = particion.Part_fit
@@ -458,12 +324,12 @@ func Logica(particion Structs.Particion, ep Structs.Particion, path string) {
 	logic.Part_next = -1
 	copy(logic.Part_name[:], particion.Part_name[:])
 
-	file, err := os.Open(strings.ReplaceAll(path, "\"", ""))
+	file, err := os.Open(discoPath)
 	if err != nil {
 		Error("FDISK", "Error al abrir el archivo del disco.")
 		return
 	}
-	file.Seek(0, 0)
+	defer file.Close()
 
 	tmp := Structs.NewEBR()
 	tmp.Part_status = 0
@@ -473,9 +339,9 @@ func Logica(particion Structs.Particion, ep Structs.Particion, path string) {
 
 	data := leerBytes(file, int(unsafe.Sizeof(Structs.EBR{})))
 	buffer := bytes.NewBuffer(data)
-	err_ := binary.Read(buffer, binary.BigEndian, &tmp)
+	err = binary.Read(buffer, binary.BigEndian, &tmp)
 
-	if err_ != nil {
+	if err != nil {
 		Error("FDSIK", "Error al leer el archivo")
 		return
 	}
@@ -488,7 +354,7 @@ func Logica(particion Structs.Particion, ep Structs.Particion, path string) {
 	for {
 		size += int64(unsafe.Sizeof(Structs.EBR{})) + tmp.Part_size
 		if (tmp.Part_size == 0 && tmp.Part_next == -1) || (tmp.Part_size == 0 && tmp.Part_next == 0) {
-			file, err = os.OpenFile(strings.ReplaceAll(path, "\"", ""), os.O_WRONLY, os.ModeAppend)
+			file, err = os.OpenFile(discoPath, os.O_WRONLY, os.ModeAppend)
 			logic.Part_start = tmp.Part_start
 			logic.Part_next = logic.Part_start + logic.Part_size + int64(unsafe.Sizeof(Structs.EBR{}))
 			if (ep.Part_size - size) <= logic.Part_size {
@@ -520,7 +386,7 @@ func Logica(particion Structs.Particion, ep Structs.Particion, path string) {
 			file.Close()
 			return
 		}
-		file, err = os.Open(strings.ReplaceAll(path, "\"", ""))
+		file, err = os.Open(discoPath)
 		if err != nil {
 			Error("FDISK", "Error al abrir el archivo del disco.")
 			return
@@ -528,21 +394,21 @@ func Logica(particion Structs.Particion, ep Structs.Particion, path string) {
 		file.Seek(tmp.Part_next, 0)
 		data = leerBytes(file, int(unsafe.Sizeof(Structs.EBR{})))
 		buffer = bytes.NewBuffer(data)
-		err_ = binary.Read(buffer, binary.BigEndian, &tmp)
+		err = binary.Read(buffer, binary.BigEndian, &tmp)
 
-		if err_ != nil {
+		if err != nil {
 			Error("FDSIK", "Error al leer el archivo")
 			return
 		}
 	}
 }
 
-func ajustar(mbr *Structs.MBR, p Structs.Particion, t []Transition, ps []Structs.Particion, u int) *Structs.MBR {
+func ajustar(mbr Structs.MBR, p Structs.Particion, t []Transition, ps []Structs.Particion, u int) *Structs.MBR {
 	if u == 0 {
 		p.Part_start = int64(unsafe.Sizeof(mbr))
 		startValue = int(p.Part_start)
-		mbr.Mbr_partition_1 = p
-		return mbr
+		mbr.Particiones[0] = p
+		return &mbr
 	} else {
 		var usar Transition
 		c := 0
@@ -640,14 +506,106 @@ func ajustar(mbr *Structs.MBR, p Structs.Particion, t []Transition, ps []Structs
 					break
 				}
 			}
-			mbr.Mbr_partition_1 = partitions[0]
-			mbr.Mbr_partition_2 = partitions[1]
-			mbr.Mbr_partition_3 = partitions[2]
-			mbr.Mbr_partition_4 = partitions[3]
-			return mbr
+			mbr.Particiones[0] = partitions[0]
+			mbr.Particiones[1] = partitions[1]
+			mbr.Particiones[2] = partitions[2]
+			mbr.Particiones[3] = partitions[3]
+			return &mbr
 		} else {
 			Error("FDISK", "No hay espacio suficiente.")
 			return nil
 		}
+	}
+}
+
+func addSpace(letra string, nombre string, espacio string, unidad string) {
+	disco := leerDisco(letra)
+	discoPath := "C:\\Users\\SuperUser\\Desktop\\Repositorio Local\\EJEMPLOS_MIA\\P1" + letra + ".dsk"
+	if disco == nil {
+		Error("FDISK", "El disco seleccionado no existe.")
+		return
+	}
+	particion := BuscarParticiones(*disco, nombre, letra)
+	if particion == nil {
+		Error("FDISK", "La particion seleccionada no existe.")
+		return
+	}
+	nuevo_espacio, err := strconv.Atoi(espacio)
+	if err != nil {
+		Error("FDISK", "Ocurrio un error al agregar el tamaño.")
+		return
+	}
+	if Comparar(unidad, "b") || Comparar(unidad, "k") || Comparar(unidad, "m") {
+		if Comparar(unidad, "k") {
+			nuevo_espacio = nuevo_espacio * 1024
+		} else if Comparar(unidad, "m") {
+			nuevo_espacio = nuevo_espacio * 1024 * 1024
+		}
+	}
+	if int64(nuevo_espacio) > disco.Mbr_Tamano {
+		Error("FDISK", "El espacio que se quiere agregar en la particion es mayor al tamaño del disco duro. ")
+		return
+	}
+
+	agregar_data := particion.Part_size + int64(nuevo_espacio)
+
+	if agregar_data < 0 {
+		Error("FDISK", "La particion no puede ser negativa.")
+		return
+	}
+
+	particion.Part_size += int64(nuevo_espacio)
+
+	file, err := os.OpenFile(discoPath, os.O_WRONLY, os.ModeAppend)
+	if err != nil {
+		Error("FDISK", "Error al abrir el archivo 3: "+err.Error())
+		return
+	}
+	defer file.Close()
+	file.Seek(0, 0)
+	var binario2 bytes.Buffer
+	binary.Write(&binario2, binary.BigEndian, disco)
+	EscribirBytes(file, binario2.Bytes())
+	Mensaje("FDISK", "El nuevo tamaño de la particion: "+string(particion.Part_name[:])+" ahora es:"+strconv.FormatInt(particion.Part_size, 10))
+	file.Close()
+}
+
+func borrarparticion(letra string, nombre string, borrar string) {
+	disco := leerDisco(letra)
+	discoPath := "C:\\Users\\SuperUser\\Desktop\\Repositorio Local\\EJEMPLOS_MIA\\P1" + letra + ".dsk"
+	if disco == nil {
+		Error("FDISK", "El disco seleccionado no existe.")
+		return
+	}
+	particion := BuscarParticiones(*disco, nombre, letra)
+	if particion == nil {
+		Error("FDISK", "La particion seleccionada no existe.")
+		return
+	}
+	if borrar == "full" {
+		particion.Part_status = 0
+		file, err := os.OpenFile(discoPath, os.O_WRONLY, os.ModeAppend)
+		if err != nil {
+			Error("FDISK", "Error al abrir el archivo 1: "+err.Error())
+			return
+		}
+		defer file.Close()
+		file.Seek(particion.Part_start, 0)
+		nullBytes := make([]byte, particion.Part_size)
+		for i := range nullBytes {
+			nullBytes[i] = 0
+		}
+
+		_, err = file.Write(nullBytes)
+		if err != nil {
+			Error("FDISK", "Error al escribir los bytes en el disco")
+			return
+		}
+
+		Mensaje("FDISK", "Espacio marcado como vacío y rellenado con \\0 en la partición "+nombre)
+		return
+	} else {
+		Error("FDISK", "Unicamente se puede usar la palabra \"full\"")
+		return
 	}
 }

@@ -98,10 +98,10 @@ func makeFile(s string, f string, u string) {
 	entero, _ := strconv.Atoi(aleatorio.String())
 	disco.Mbr_disk_signature = int64(entero)
 	copy(disco.Dsk_fit[:], string(f[0]))
-	disco.Mbr_partition_1 = Structs.NewParticion()
-	disco.Mbr_partition_2 = Structs.NewParticion()
-	disco.Mbr_partition_3 = Structs.NewParticion()
-	disco.Mbr_partition_4 = Structs.NewParticion()
+	disco.Particiones[0] = Structs.NewParticion()
+	disco.Particiones[1] = Structs.NewParticion()
+	disco.Particiones[2] = Structs.NewParticion()
+	disco.Particiones[3] = Structs.NewParticion()
 
 	// Generar el nombre del disco automáticamente (de la A a la Z)
 
